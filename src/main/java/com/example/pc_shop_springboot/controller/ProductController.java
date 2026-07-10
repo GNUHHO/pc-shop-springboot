@@ -3,6 +3,7 @@ package com.example.pc_shop_springboot.controller;
 import com.example.pc_shop_springboot.dto.ProductResponse;
 import com.example.pc_shop_springboot.entity.Product;
 import com.example.pc_shop_springboot.service.ProductService;
+import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,7 +27,9 @@ public class ProductController {
     }
 
     @GetMapping("/{productId}")
-    public ResponseEntity<ProductResponse> getProductById(@PathVariable Integer productId) {
+    public ResponseEntity<ProductResponse> getProductById(
+            @PathVariable @Positive(message = "productId must be greater than 0") Integer productId
+    ) {
         ProductResponse product = productService.getProductById(productId);
         return ResponseEntity.ok(product);
     }

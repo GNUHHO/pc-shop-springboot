@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.Map;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -68,5 +69,37 @@ class ProductControllerTests {
                 .andExpect(jsonPath("$.path").value("/api/v1/products/99"))
                 .andExpect(jsonPath("$.trace").doesNotExist())
                 .andExpect(jsonPath("$.stackTrace").doesNotExist());
+    }
+
+    @Test
+    void getProductById_whenProductIdIsZero_returnsBadRequestWithoutCallingService() throws Exception {
+        mockMvc.perform(get("/api/v1/products/0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.timestamp").isNotEmpty())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("productId must be greater than 0"))
+                .andExpect(jsonPath("$.path").value("/api/v1/products/0"))
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(jsonPath("$.stackTrace").doesNotExist());
+
+        verifyNoInteractions(productService);
+    }
+
+    @Test
+    void getProductById_whenProductIdIsNegative_returnsBadRequestWithoutCallingService() throws Exception {
+        mockMvc.perform(get("/api/v1/products/-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.timestamp").isNotEmpty())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("productId must be greater than 0"))
+                .andExpect(jsonPath("$.path").value("/api/v1/products/-1"))
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(jsonPath("$.stackTrace").doesNotExist());
+
+        verifyNoInteractions(productService);
     }
 }
