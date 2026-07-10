@@ -11,8 +11,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -28,6 +30,67 @@ class ProductControllerTests {
 
     @MockitoBean
     private ProductService productService;
+
+    @Test
+    void getAllProducts_whenProductsExist_returnsOkAndProductArray() throws Exception {
+        ProductResponse firstProduct = new ProductResponse(
+                1,
+                2,
+                "PC-001",
+                "Gaming PC",
+                new BigDecimal("1000.00"),
+                new BigDecimal("1100.00"),
+                Map.of("ram", "32GB"),
+                true
+        );
+        ProductResponse secondProduct = new ProductResponse(
+                2,
+                3,
+                "PC-002",
+                "Office PC",
+                new BigDecimal("700.00"),
+                new BigDecimal("750.00"),
+                Map.of("ram", "16GB"),
+                false
+        );
+        when(productService.getAllProducts()).thenReturn(List.of(firstProduct, secondProduct));
+
+        mockMvc.perform(get("/api/v1/products"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].productId").value(1))
+                .andExpect(jsonPath("$[0].categoryId").value(2))
+                .andExpect(jsonPath("$[0].sku").value("PC-001"))
+                .andExpect(jsonPath("$[0].name").value("Gaming PC"))
+                .andExpect(jsonPath("$[0].basePrice").value(1000.00))
+                .andExpect(jsonPath("$[0].currentDynamicPrice").value(1100.00))
+                .andExpect(jsonPath("$[0].specs.ram").value("32GB"))
+                .andExpect(jsonPath("$[0].isActive").value(true))
+                .andExpect(jsonPath("$[1].productId").value(2))
+                .andExpect(jsonPath("$[1].categoryId").value(3))
+                .andExpect(jsonPath("$[1].sku").value("PC-002"))
+                .andExpect(jsonPath("$[1].name").value("Office PC"))
+                .andExpect(jsonPath("$[1].basePrice").value(700.00))
+                .andExpect(jsonPath("$[1].currentDynamicPrice").value(750.00))
+                .andExpect(jsonPath("$[1].specs.ram").value("16GB"))
+                .andExpect(jsonPath("$[1].isActive").value(false));
+
+        verify(productService).getAllProducts();
+    }
+
+    @Test
+    void getAllProducts_whenNoProductsExist_returnsOkAndEmptyArray() throws Exception {
+        when(productService.getAllProducts()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/products"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("[]"));
+
+        verify(productService).getAllProducts();
+    }
 
     @Test
     void getProductById_whenProductExists_returnsOkAndProductJson() throws Exception {

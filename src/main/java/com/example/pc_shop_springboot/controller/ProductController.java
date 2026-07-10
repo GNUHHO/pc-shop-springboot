@@ -1,7 +1,6 @@
 package com.example.pc_shop_springboot.controller;
 
 import com.example.pc_shop_springboot.dto.ProductResponse;
-import com.example.pc_shop_springboot.entity.Product;
 import com.example.pc_shop_springboot.service.ProductService;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
@@ -21,8 +20,8 @@ public class ProductController {
     private final ProductService productService;
 
     @GetMapping
-    public ResponseEntity<List<Product>> getAllProducts() {
-        List<Product> products = productService.getAllProducts();
+    public ResponseEntity<List<ProductResponse>> getAllProducts() {
+        List<ProductResponse> products = productService.getAllProducts();
         return ResponseEntity.ok(products);
     }
 

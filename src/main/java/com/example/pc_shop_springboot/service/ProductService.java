@@ -14,14 +14,20 @@ import java.util.List;
 public class ProductService {
     private final ProductRepository productRepository;
 
-    public List<Product> getAllProducts() {
-        return productRepository.findAll();
+    public List<ProductResponse> getAllProducts() {
+        return productRepository.findAll().stream()
+                .map(this::mapToProductResponse)
+                .toList();
     }
 
     public ProductResponse getProductById(Integer productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ProductNotFoundException(productId));
 
+        return mapToProductResponse(product);
+    }
+
+    private ProductResponse mapToProductResponse(Product product) {
         return new ProductResponse(
                 product.getProductId(),
                 product.getCategoryId(),
