@@ -2,6 +2,7 @@ package com.example.pc_shop_springboot.controller;
 
 import com.example.pc_shop_springboot.dto.CreateProductRequest;
 import com.example.pc_shop_springboot.dto.ProductResponse;
+import com.example.pc_shop_springboot.dto.UpdateProductRequest;
 import com.example.pc_shop_springboot.service.ProductService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PutMapping;
 
 import java.net.URI;
 import java.util.List;
@@ -37,6 +39,15 @@ public class ProductController {
         ProductResponse product = productService.createProduct(request);
         URI location = URI.create("/api/v1/products/" + product.getProductId());
         return ResponseEntity.created(location).body(product);
+    }
+
+    @PutMapping("/{productId}")
+    public ResponseEntity<ProductResponse> updateProduct(
+            @PathVariable @Positive(message = "productId must be greater than 0") Integer productId,
+            @Valid @RequestBody UpdateProductRequest request
+    ) {
+        ProductResponse product = productService.updateProduct(productId, request);
+        return ResponseEntity.ok(product);
     }
 
     @GetMapping("/{productId}")

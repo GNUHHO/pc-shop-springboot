@@ -5,6 +5,7 @@ import com.example.pc_shop_springboot.repository.InventoryRepository;
 import com.example.pc_shop_springboot.repository.OrderItemRepository;
 import com.example.pc_shop_springboot.repository.OrderRepository;
 import com.example.pc_shop_springboot.repository.ProductRepository;
+import com.example.pc_shop_springboot.repository.ProductPriceHistoryRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -19,6 +20,9 @@ class PcShopSpringbootApplicationTests {
 
 	@MockitoBean
 	private ProductRepository productRepository;
+
+	@MockitoBean
+	private ProductPriceHistoryRepository productPriceHistoryRepository;
 
 	@MockitoBean
 	private CategoryRepository categoryRepository;

@@ -8,6 +8,8 @@ import org.springframework.stereotype.Repository;
 public interface ProductRepository extends JpaRepository<Product, Integer> {
     boolean existsBySku(String sku);
 
+    boolean existsBySkuAndProductIdNot(String sku, Integer productId);
+
     // Spring Data JPA automatically provides basic CRUD operations.
     // We can define custom queries here later (e.g., findBySku).
 }

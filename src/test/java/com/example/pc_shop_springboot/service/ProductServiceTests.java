@@ -2,12 +2,17 @@ package com.example.pc_shop_springboot.service;
 
 import com.example.pc_shop_springboot.dto.CreateProductRequest;
 import com.example.pc_shop_springboot.dto.ProductResponse;
+import com.example.pc_shop_springboot.dto.UpdateProductRequest;
+import com.example.pc_shop_springboot.entity.PriceChangeSource;
+import com.example.pc_shop_springboot.entity.PriceChangeType;
 import com.example.pc_shop_springboot.entity.Product;
+import com.example.pc_shop_springboot.entity.ProductPriceHistory;
 import com.example.pc_shop_springboot.exception.CategoryNotFoundException;
 import com.example.pc_shop_springboot.exception.DuplicateProductSkuException;
 import com.example.pc_shop_springboot.exception.ProductNotFoundException;
 import com.example.pc_shop_springboot.repository.CategoryRepository;
 import com.example.pc_shop_springboot.repository.ProductRepository;
+import com.example.pc_shop_springboot.repository.ProductPriceHistoryRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -24,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,6 +47,9 @@ class ProductServiceTests {
 
     @Mock
     private CategoryRepository categoryRepository;
+
+    @Mock
+    private ProductPriceHistoryRepository productPriceHistoryRepository;
 
     @InjectMocks
     private ProductService productService;
@@ -139,6 +148,213 @@ class ProductServiceTests {
         verify(productRepository, times(1)).existsBySku("PC-001");
         verify(categoryRepository, times(1)).existsById(2);
         verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
+    void updateProduct_whenRequestIsValid_updatesExistingEntityAndReturnsResponse() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1200.00"), new BigDecimal("1300.00"), "Annual update");
+        when(productRepository.findById(1)).thenReturn(Optional.of(existingProduct));
+        when(productRepository.existsBySkuAndProductIdNot("PC-UPDATED", 1)).thenReturn(false);
+        when(categoryRepository.existsById(3)).thenReturn(true);
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ProductResponse response = productService.updateProduct(1, request);
+
+        ArgumentCaptor<Product> productCaptor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository, times(1)).save(productCaptor.capture());
+        Product capturedProduct = productCaptor.getValue();
+        assertSame(existingProduct, capturedProduct);
+        assertAll(
+                () -> assertEquals(1, capturedProduct.getProductId()),
+                () -> assertEquals(3, capturedProduct.getCategoryId()),
+                () -> assertEquals("PC-UPDATED", capturedProduct.getSku()),
+                () -> assertEquals("Updated Gaming PC", capturedProduct.getName()),
+                () -> assertEquals(new BigDecimal("1200.00"), capturedProduct.getBasePrice()),
+                () -> assertEquals(new BigDecimal("1300.00"), capturedProduct.getCurrentDynamicPrice()),
+                () -> assertEquals(Map.of("ram", "64GB"), capturedProduct.getSpecs()),
+                () -> assertEquals(false, capturedProduct.getIsActive()),
+                () -> assertEquals(1, response.getProductId()),
+                () -> assertEquals(3, response.getCategoryId()),
+                () -> assertEquals("PC-UPDATED", response.getSku()),
+                () -> assertEquals("Updated Gaming PC", response.getName()),
+                () -> assertEquals(new BigDecimal("1200.00"), response.getBasePrice()),
+                () -> assertEquals(new BigDecimal("1300.00"), response.getCurrentDynamicPrice()),
+                () -> assertEquals(Map.of("ram", "64GB"), response.getSpecs()),
+                () -> assertEquals(false, response.getIsActive())
+        );
+    }
+
+    @Test
+    void updateProduct_whenPricesDoNotChange_doesNotCreateHistory() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1000.00"), new BigDecimal("1100.00"), null);
+        stubValidUpdate(existingProduct);
+
+        productService.updateProduct(1, request);
+
+        verify(productRepository, times(1)).save(existingProduct);
+        verify(productPriceHistoryRepository, never()).save(any(ProductPriceHistory.class));
+    }
+
+    @Test
+    void updateProduct_whenPriceScaleOnlyChanges_doesNotCreateHistory() {
+        Product existingProduct = createProduct();
+        existingProduct.setBasePrice(new BigDecimal("1000.0"));
+        existingProduct.setCurrentDynamicPrice(new BigDecimal("1100.0"));
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1000.00"), new BigDecimal("1100.00"), null);
+        stubValidUpdate(existingProduct);
+
+        productService.updateProduct(1, request);
+
+        verify(productPriceHistoryRepository, never()).save(any(ProductPriceHistory.class));
+    }
+
+    @Test
+    void updateProduct_whenOnlyBasePriceChanges_createsBasePriceHistory() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1200.00"), new BigDecimal("1100.00"), "Base price review");
+        stubValidUpdate(existingProduct);
+
+        productService.updateProduct(1, request);
+
+        ProductPriceHistory history = captureSavedHistory();
+        assertAll(
+                () -> assertEquals(1, history.getProductId()),
+                () -> assertEquals(new BigDecimal("1000.00"), history.getOldBasePrice()),
+                () -> assertEquals(new BigDecimal("1200.00"), history.getNewBasePrice()),
+                () -> assertEquals(new BigDecimal("1100.00"), history.getOldDynamicPrice()),
+                () -> assertEquals(new BigDecimal("1100.00"), history.getNewDynamicPrice()),
+                () -> assertEquals(PriceChangeType.BASE_PRICE, history.getChangeType()),
+                () -> assertEquals(PriceChangeSource.MANUAL, history.getChangeSource()),
+                () -> assertEquals("Base price review", history.getChangeReason()),
+                () -> assertNotNull(history.getChangedAt())
+        );
+    }
+
+    @Test
+    void updateProduct_whenOnlyDynamicPriceChanges_createsDynamicPriceHistory() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1000.00"), new BigDecimal("1250.00"), "Dynamic price review");
+        stubValidUpdate(existingProduct);
+
+        productService.updateProduct(1, request);
+
+        ProductPriceHistory history = captureSavedHistory();
+        assertAll(
+                () -> assertEquals(new BigDecimal("1000.00"), history.getOldBasePrice()),
+                () -> assertEquals(new BigDecimal("1000.00"), history.getNewBasePrice()),
+                () -> assertEquals(new BigDecimal("1100.00"), history.getOldDynamicPrice()),
+                () -> assertEquals(new BigDecimal("1250.00"), history.getNewDynamicPrice()),
+                () -> assertEquals(PriceChangeType.CURRENT_DYNAMIC_PRICE, history.getChangeType()),
+                () -> assertEquals(PriceChangeSource.MANUAL, history.getChangeSource())
+        );
+    }
+
+    @Test
+    void updateProduct_whenBothPricesChange_createsOneHistoryRecord() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1200.00"), new BigDecimal("1300.00"), "Both prices reviewed");
+        stubValidUpdate(existingProduct);
+
+        productService.updateProduct(1, request);
+
+        ProductPriceHistory history = captureSavedHistory();
+        assertAll(
+                () -> assertEquals(new BigDecimal("1000.00"), history.getOldBasePrice()),
+                () -> assertEquals(new BigDecimal("1200.00"), history.getNewBasePrice()),
+                () -> assertEquals(new BigDecimal("1100.00"), history.getOldDynamicPrice()),
+                () -> assertEquals(new BigDecimal("1300.00"), history.getNewDynamicPrice()),
+                () -> assertEquals(PriceChangeType.BOTH, history.getChangeType()),
+                () -> assertEquals(PriceChangeSource.MANUAL, history.getChangeSource())
+        );
+        verify(productPriceHistoryRepository, times(1)).save(any(ProductPriceHistory.class));
+    }
+
+    @Test
+    void updateProduct_whenSkuIsUnchanged_updatesSuccessfully() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1000.00"), new BigDecimal("1100.00"), null);
+        request.setSku("PC-001");
+        when(productRepository.findById(1)).thenReturn(Optional.of(existingProduct));
+        when(productRepository.existsBySkuAndProductIdNot("PC-001", 1)).thenReturn(false);
+        when(categoryRepository.existsById(3)).thenReturn(true);
+        when(productRepository.save(existingProduct)).thenReturn(existingProduct);
+
+        productService.updateProduct(1, request);
+
+        verify(productRepository).existsBySkuAndProductIdNot("PC-001", 1);
+        verify(productRepository, times(1)).save(existingProduct);
+    }
+
+    @Test
+    void updateProduct_whenProductDoesNotExist_throwsProductNotFound() {
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1000.00"), new BigDecimal("1100.00"), null);
+        when(productRepository.findById(99)).thenReturn(Optional.empty());
+
+        assertThrows(ProductNotFoundException.class, () -> productService.updateProduct(99, request));
+
+        verify(productRepository, never()).existsBySkuAndProductIdNot(any(String.class), any(Integer.class));
+        verifyNoInteractions(categoryRepository);
+        verify(productRepository, never()).save(any(Product.class));
+        verifyNoInteractions(productPriceHistoryRepository);
+    }
+
+    @Test
+    void updateProduct_whenSkuBelongsToAnotherProduct_throwsDuplicateSku() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1000.00"), new BigDecimal("1100.00"), null);
+        when(productRepository.findById(1)).thenReturn(Optional.of(existingProduct));
+        when(productRepository.existsBySkuAndProductIdNot("PC-UPDATED", 1)).thenReturn(true);
+
+        assertThrows(DuplicateProductSkuException.class, () -> productService.updateProduct(1, request));
+
+        verifyNoInteractions(categoryRepository);
+        verify(productRepository, never()).save(any(Product.class));
+        verifyNoInteractions(productPriceHistoryRepository);
+    }
+
+    @Test
+    void updateProduct_whenCategoryDoesNotExist_throwsCategoryNotFound() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1000.00"), new BigDecimal("1100.00"), null);
+        when(productRepository.findById(1)).thenReturn(Optional.of(existingProduct));
+        when(productRepository.existsBySkuAndProductIdNot("PC-UPDATED", 1)).thenReturn(false);
+        when(categoryRepository.existsById(3)).thenReturn(false);
+
+        assertThrows(CategoryNotFoundException.class, () -> productService.updateProduct(1, request));
+
+        verify(productRepository, never()).save(any(Product.class));
+        verifyNoInteractions(productPriceHistoryRepository);
+    }
+
+    @Test
+    void updateProduct_whenHistorySaveFails_propagatesException() {
+        Product existingProduct = createProduct();
+        UpdateProductRequest request = createUpdateProductRequest(
+                new BigDecimal("1200.00"), new BigDecimal("1100.00"), "Base price review");
+        stubValidUpdate(existingProduct);
+        RuntimeException historyFailure = new RuntimeException("History persistence failed");
+        when(productPriceHistoryRepository.save(any(ProductPriceHistory.class))).thenThrow(historyFailure);
+
+        RuntimeException thrown = assertThrows(
+                RuntimeException.class,
+                () -> productService.updateProduct(1, request)
+        );
+
+        assertSame(historyFailure, thrown);
+        verify(productRepository, times(1)).save(existingProduct);
+        verify(productPriceHistoryRepository, times(1)).save(any(ProductPriceHistory.class));
     }
 
     @Test
@@ -249,5 +465,35 @@ class ProductServiceTests {
                 Map.of("ram", "32GB"),
                 isActive
         );
+    }
+
+    private UpdateProductRequest createUpdateProductRequest(
+            BigDecimal basePrice,
+            BigDecimal currentDynamicPrice,
+            String changeReason
+    ) {
+        return new UpdateProductRequest(
+                3,
+                "PC-UPDATED",
+                "Updated Gaming PC",
+                basePrice,
+                currentDynamicPrice,
+                Map.of("ram", "64GB"),
+                false,
+                changeReason
+        );
+    }
+
+    private void stubValidUpdate(Product existingProduct) {
+        when(productRepository.findById(1)).thenReturn(Optional.of(existingProduct));
+        when(productRepository.existsBySkuAndProductIdNot("PC-UPDATED", 1)).thenReturn(false);
+        when(categoryRepository.existsById(3)).thenReturn(true);
+        when(productRepository.save(existingProduct)).thenReturn(existingProduct);
+    }
+
+    private ProductPriceHistory captureSavedHistory() {
+        ArgumentCaptor<ProductPriceHistory> historyCaptor = ArgumentCaptor.forClass(ProductPriceHistory.class);
+        verify(productPriceHistoryRepository, times(1)).save(historyCaptor.capture());
+        return historyCaptor.getValue();
     }
 }
