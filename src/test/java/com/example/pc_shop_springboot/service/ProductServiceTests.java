@@ -1,11 +1,16 @@
 package com.example.pc_shop_springboot.service;
 
+import com.example.pc_shop_springboot.dto.CreateProductRequest;
 import com.example.pc_shop_springboot.dto.ProductResponse;
 import com.example.pc_shop_springboot.entity.Product;
+import com.example.pc_shop_springboot.exception.CategoryNotFoundException;
+import com.example.pc_shop_springboot.exception.DuplicateProductSkuException;
 import com.example.pc_shop_springboot.exception.ProductNotFoundException;
+import com.example.pc_shop_springboot.repository.CategoryRepository;
 import com.example.pc_shop_springboot.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -18,9 +23,14 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -29,8 +39,107 @@ class ProductServiceTests {
     @Mock
     private ProductRepository productRepository;
 
+    @Mock
+    private CategoryRepository categoryRepository;
+
     @InjectMocks
     private ProductService productService;
+
+    @Test
+    void createProduct_whenRequestIsValid_savesAndReturnsResponse() {
+        CreateProductRequest request = createProductRequest(true);
+        Product savedProduct = createProduct();
+        savedProduct.setProductId(10);
+        when(productRepository.existsBySku("PC-001")).thenReturn(false);
+        when(categoryRepository.existsById(2)).thenReturn(true);
+        when(productRepository.save(any(Product.class))).thenReturn(savedProduct);
+
+        ProductResponse response = productService.createProduct(request);
+
+        ArgumentCaptor<Product> productCaptor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).existsBySku("PC-001");
+        verify(productRepository).save(productCaptor.capture());
+        Product productToSave = productCaptor.getValue();
+        assertAll(
+                () -> assertNull(productToSave.getProductId()),
+                () -> assertEquals(2, productToSave.getCategoryId()),
+                () -> assertEquals("PC-001", productToSave.getSku()),
+                () -> assertEquals("Gaming PC", productToSave.getName()),
+                () -> assertEquals(new BigDecimal("1000.00"), productToSave.getBasePrice()),
+                () -> assertEquals(new BigDecimal("1100.00"), productToSave.getCurrentDynamicPrice()),
+                () -> assertEquals(Map.of("ram", "32GB"), productToSave.getSpecs()),
+                () -> assertEquals(true, productToSave.getIsActive()),
+                () -> assertEquals(10, response.getProductId()),
+                () -> assertEquals(2, response.getCategoryId()),
+                () -> assertEquals("PC-001", response.getSku()),
+                () -> assertEquals("Gaming PC", response.getName()),
+                () -> assertEquals(new BigDecimal("1000.00"), response.getBasePrice()),
+                () -> assertEquals(new BigDecimal("1100.00"), response.getCurrentDynamicPrice()),
+                () -> assertEquals(Map.of("ram", "32GB"), response.getSpecs()),
+                () -> assertEquals(true, response.getIsActive())
+        );
+    }
+
+    @Test
+    void createProduct_whenIsActiveIsNull_defaultsToTrue() {
+        CreateProductRequest request = createProductRequest(null);
+        when(productRepository.existsBySku("PC-001")).thenReturn(false);
+        when(categoryRepository.existsById(2)).thenReturn(true);
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        productService.createProduct(request);
+
+        ArgumentCaptor<Product> productCaptor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(true, productCaptor.getValue().getIsActive());
+    }
+
+    @Test
+    void createProduct_whenIsActiveIsFalse_preservesFalse() {
+        CreateProductRequest request = createProductRequest(false);
+        when(productRepository.existsBySku("PC-001")).thenReturn(false);
+        when(categoryRepository.existsById(2)).thenReturn(true);
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        productService.createProduct(request);
+
+        ArgumentCaptor<Product> productCaptor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(false, productCaptor.getValue().getIsActive());
+    }
+
+    @Test
+    void createProduct_whenSkuExists_throwsDuplicateProductSkuException() {
+        CreateProductRequest request = createProductRequest(true);
+        when(productRepository.existsBySku("PC-001")).thenReturn(true);
+
+        DuplicateProductSkuException exception = assertThrows(
+                DuplicateProductSkuException.class,
+                () -> productService.createProduct(request)
+        );
+
+        assertEquals("Product with SKU already exists: PC-001", exception.getMessage());
+        verify(productRepository).existsBySku("PC-001");
+        verifyNoInteractions(categoryRepository);
+        verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
+    void createProduct_whenCategoryDoesNotExist_throwsCategoryNotFoundExceptionAndDoesNotSave() {
+        CreateProductRequest request = createProductRequest(true);
+        when(productRepository.existsBySku("PC-001")).thenReturn(false);
+        when(categoryRepository.existsById(2)).thenReturn(false);
+
+        CategoryNotFoundException exception = assertThrows(
+                CategoryNotFoundException.class,
+                () -> productService.createProduct(request)
+        );
+
+        assertEquals("Category not found with id: 2", exception.getMessage());
+        verify(productRepository, times(1)).existsBySku("PC-001");
+        verify(categoryRepository, times(1)).existsById(2);
+        verify(productRepository, never()).save(any(Product.class));
+    }
 
     @Test
     void getAllProducts_whenProductsExist_returnsProductResponses() {
@@ -128,5 +237,17 @@ class ProductServiceTests {
         product.setSpecs(Map.of("ram", "16GB"));
         product.setIsActive(false);
         return product;
+    }
+
+    private CreateProductRequest createProductRequest(Boolean isActive) {
+        return new CreateProductRequest(
+                2,
+                "PC-001",
+                "Gaming PC",
+                new BigDecimal("1000.00"),
+                new BigDecimal("1100.00"),
+                Map.of("ram", "32GB"),
+                isActive
+        );
     }
 }
